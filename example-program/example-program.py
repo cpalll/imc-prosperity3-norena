@@ -22,7 +22,12 @@ class Trader:
                 orders: list[Order] = []
 
                 # Note that this value of 1 is just a dummy value, you should likely change it!
-                acceptable_price = 10
+                print("asdf", product)
+                if product == "RAINFOREST_RESIN":
+                    acceptable_price = 10000
+                else:
+                    acceptable_price = 10
+
 
                 # If statement checks if there are any SELL orders in the market
                 if len(order_depth.sell_orders) > 0:

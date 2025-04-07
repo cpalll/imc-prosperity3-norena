@@ -1,3 +1,4 @@
+import math
 from typing import Dict, List
 from datamodel import OrderDepth, TradingState, Order
 
@@ -12,21 +13,16 @@ class Trader:
         # Initialize the method output dict as an empty dict
         result = {}
 
-        # Iterate over all the keys (the available products) contained in the order dephts
+        # Iterate over all the keys (the available products) contained in the order depths
         for product in state.order_depths.keys():
+            # Retrieve the Order Depth containing all the market BUY and SELL orders
+            order_depth: OrderDepth = state.order_depths[product]
 
-                # Retrieve the Order Depth containing all the market BUY and SELL orders
-                order_depth: OrderDepth = state.order_depths[product]
+            # Initialize the list of Orders to be sent as an empty list
+            orders: list[Order] = []
+            if product == "RAINFOREST_RESIN":
+                acceptable_price = 10000
 
-                # Initialize the list of Orders to be sent as an empty list
-                orders: list[Order] = []
-
-                # Note that this value of 1 is just a dummy value, you should likely change it!
-                print("asdf", product)
-                if product == "RAINFOREST_RESIN":
-                    acceptable_price = 10000
-                else:
-                    acceptable_price = 10
 
 
                 # If statement checks if there are any SELL orders in the market
@@ -61,6 +57,21 @@ class Trader:
 
                 # Add all the above the orders to the result dict
                 result[product] = orders
+
+            elif product == "KELP":
+                if len(order_depth.sell_orders) != 0 and len(order_depth.buy_orders):
+                    mid_price = (min(order_depth.sell_orders.keys()) + max(order_depth.buy_orders.keys()))/2
+                    ask_price = math.ceil(mid_price + 2)
+                    bid_price = math.floor(mid_price - 2)
+
+                    orders.append(Order(product, ask_price, -2))
+                    print("Selling KELP at ", ask_price)
+                    orders.append(Order(product, bid_price, 2))
+                    print("Buying KELP at ", bid_price)
+
+
+
+
                 
         traderData = "SAMPLE" # String value holding Trader state data required. It will be delivered as TradingState.traderData on next execution.
         

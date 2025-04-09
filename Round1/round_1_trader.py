@@ -44,10 +44,12 @@ class Trader:
                 min_ask = min(order_depth.sell_orders)
 
 
-                if max_bid < fair_value:
-                    orders.append(Order(product, max_bid, quantity))
-                elif min_ask > fair_value:
-                    orders.append(Order(product, min_ask, -quantity))
+                # Sell if bid price higher than fair value
+                if max_bid > fair_value:
+                    orders.append(Order(product, max_bid, -sell_quantity))
+                # Buy if ask price lower than fair value
+                elif min_ask < fair_value:
+                    orders.append(Order(product, min_ask, -buy_quantity))
 
 
 

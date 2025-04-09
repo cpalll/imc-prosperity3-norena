@@ -41,8 +41,14 @@ class Trader:
                 fair_value = 10000
                 max_bid = max(order_depth.buy_orders)
                 quantity = order_depth.buy_orders[0]
-                if max(order_depth.buy_orders) < fair_value:
+                min_ask = min(order_depth.sell_orders)
+
+
+                if max_bid < fair_value:
                     orders.append(Order(product, max_bid, quantity))
+                elif min_ask > fair_value:
+                    orders.append(Order(product, min_ask, -quantity))
+
 
 
 

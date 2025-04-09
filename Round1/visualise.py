@@ -26,20 +26,36 @@ trades_day_3 = pd.DataFrame(trades_day_3)
 trades_day_3.timestamp = trades_day_3.timestamp + 2000000
 trades = pd.concat([trades_day_1, trades_day_2, trades_day_3])
 
+start_ms = 1500000
+end_ms = 1600000
+
 #Select KELP data
-kelp_data = prices.loc[prices["product"] == "KELP"]
+kelp_data = prices.loc[(prices["product"] == "KELP") & (prices["timestamp"] > start_ms) & (prices["timestamp"] < end_ms)]
 #Select RESIN data
-resin_data = prices.loc[prices["product"] == "RAINFOREST_RESIN"]
+resin_data = prices.loc[(prices["product"] == "RAINFOREST_RESIN") & (prices["timestamp"] > start_ms) & (prices["timestamp"] < end_ms)]
 #Select INK data
-ink_data = prices.loc[prices["product"] == "SQUID_INK"]
+ink_data = prices.loc[(prices["product"] == "SQUID_INK") & (prices["timestamp"] > start_ms) & (prices["timestamp"] < end_ms)]
 
 #Display data as table
 print(resin_data)
+product = "INK"
+data = pd.DataFrame()
+
+if product == "KELP":
+    data = kelp_data
+elif product == "RESIN":
+    data = resin_data
+elif product == "INK":
+    data = ink_data
+
 
 #Visualise
-plt.plot(kelp_data['timestamp'], kelp_data['mid_price'], 'g-', label='Kelp Mid Price', linewidth=0.5)
-#plt.plot(resin_data['timestamp'], resin_data['mid_price'], 'b-', label='Resin Mid Price', linewidth=0.5)
-plt.plot(ink_data['timestamp'], ink_data['mid_price'], 'b-', label='Ink Mid Price', linewidth=0.5)
+plt.plot((data['timestamp']), data['mid_price'], 'b-', linewidth=0.5)
+#plt.plot((data['timestamp']), data['bid_price_1'], 'g-', linewidth=0.5)
+#plt.plot((data['timestamp']), data['ask_price_1'], 'r-', linewidth=0.5)
+
+
+#plt.plot(ink_data['timestamp'], ink_data['mid_price'], 'b-', label='Ink Mid Price', linewidth=0.5)
 
 
 

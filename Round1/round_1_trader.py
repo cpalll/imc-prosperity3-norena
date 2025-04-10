@@ -17,6 +17,9 @@ class Trader:
         :param state: Contains order book, positions, and traderData
         :return: (orders, conversions, traderData)
         """
+        # Set Position limit constants
+        POSITION_LIMIT = 50
+
         # --- 1. Load Persistent State ---
         if state.traderData:
             self.trader_data = jsonpickle.decode(state.traderData)
@@ -33,24 +36,30 @@ class Trader:
 
             # --- [Your Strategy Logic Goes Here] ---
             # Example: Print market data
-            print(f"{product} - Position: {current_position}")
             print("Bids:", order_depth.buy_orders)
             print("Asks:", order_depth.sell_orders)
 
             if product == "RAINFOREST_RESIN":
                 fair_value = 10000
                 max_bid = max(order_depth.buy_orders)
-                quantity = order_depth.buy_orders[0]
+                max_bid_volume = order_depth.buy_orders[max_bid]
                 min_ask = min(order_depth.sell_orders)
+                min_ask_volume = order_depth.sell_orders[min_ask]
 
 
                 # Sell if bid price higher than fair value
                 if max_bid > fair_value:
+                    max_sell_volume = POSITION_LIMIT + current_position
+                    sell_quantity = min(max_bid_volume, max_sell_volume)
                     orders.append(Order(product, max_bid, -sell_quantity))
+                    print(f"Selling resin at {max_bid} for {sell_quantity}")
                 # Buy if ask price lower than fair value
                 elif min_ask < fair_value:
+                    max_buy_volume = POSITION_LIMIT - current_position
+                    buy_quantity = min(min_ask_volume, max_buy_volume)
                     orders.append(Order(product, min_ask, -buy_quantity))
-
+                    print(f"Buying resin at {min_ask} for {buy_quantity}")
+                print(f"{product} - Position: {current_position}")
 
 
 

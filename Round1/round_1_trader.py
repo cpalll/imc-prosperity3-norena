@@ -182,15 +182,13 @@ class Trader:
                 if max_bid > fair_value:
                     max_sell_volume = POSITION_LIMIT + current_position
                     sell_quantity = min(max_bid_volume, max_sell_volume)
-                    orders.append(Order(product, max_bid, -sell_quantity))
-                    print(f"SELL {sell_quantity}x {product} @ {max_bid}")
+                    orders.append(Order(product, max_bid, -max_sell_volume))
 
                 # Buy if ask price lower than fair value
                 elif min_ask < fair_value:
                     max_buy_volume = POSITION_LIMIT - current_position
                     buy_quantity = min(min_ask_volume, max_buy_volume)
-                    orders.append(Order(product, min_ask, -buy_quantity))
-                    print(f"BUY {buy_quantity}x {product} @ {min_ask}")
+                    orders.append(Order(product, min_ask, max_buy_volume))
 
             # Kelp trading strategy
             elif product == "KELP":

@@ -58,8 +58,32 @@ class Trader:
                     max_buy_volume = POSITION_LIMIT - current_position
                     buy_quantity = min(min_ask_volume, max_buy_volume)
                     orders.append(Order(product, min_ask, -buy_quantity))
-                    print(f"Buying resin at {min_ask} for {buy_quantity}")
-                print(f"{product} - Position: {current_position}")
+                    print(f"BUY {buy_quantity}x {product} @ {min_ask}")
+
+            # Kelp trading strategy
+            elif product == "KELP":
+                best_bid = max(order_depth.buy_orders.keys())
+                best_ask = min(order_depth.sell_orders.keys())
+                mid_price = (best_bid + best_ask) / 2
+                current_range = self.trader_data["kelp_price_interval_current"]
+                previous_range = self.trader_data["kelp_price_interval_previous"]
+                spread = previous_range[0] - previous_range[1]
+
+                range_middle = self.trader_data["kelp_range_middle"]
+                if state.timestamp % KELP_RANGE_INTERVAL == 0:
+                    # Start new interval
+                    self.trader_data["kelp_price_interval_previous"] = self.trader_data["kelp_price_interval_current"]
+                    self.trader_data["kelp_price_interval_current"] = []
+                    self.trader_data["kelp_range_middle"] = mid_price
+
+
+                current_range[0] = max(current_range[0], best_ask)
+                current_range[1] = max(current_range[1], best_bid)
+
+
+
+
+
 
 
 

@@ -129,7 +129,12 @@ class Trader:
             "kelp_price_interval_current": [-9999999, 9999999],
             "kelp_range_middle": 0,
             "kelp_trading_active": True,
+            "price_history": [],  # Stores last 50 mid-prices
+            "entry_price": None  # Track entry price for exits
         }
+        self.LOOKBACK_PERIOD = 50  # Momentum calculation window
+        self.POSITION_LIMIT = 50  # Max position size
+        self.TREND_THRESHOLD = 0.001
 
 
     def run(self, state: TradingState) -> tuple[Dict[str, List[Order]], int, str]:
@@ -170,7 +175,7 @@ class Trader:
             min_ask_volume = order_depth.sell_orders[min_ask]
 
             # Resin trading strategy
-            """if product == "RAINFOREST_RESIN":
+            if product == "RAINFOREST_RESIN":
                 fair_value = 10000
 
                 # Sell if bid price higher than fair value
@@ -185,10 +190,10 @@ class Trader:
                     max_buy_volume = POSITION_LIMIT - current_position
                     buy_quantity = min(min_ask_volume, max_buy_volume)
                     orders.append(Order(product, min_ask, -buy_quantity))
-                    print(f"BUY {buy_quantity}x {product} @ {min_ask}")"""
+                    print(f"BUY {buy_quantity}x {product} @ {min_ask}")
 
             # Kelp trading strategy
-            if product == "KELP":
+            elif product == "KELP":
                 best_bid = max(order_depth.buy_orders.keys())
                 best_ask = min(order_depth.sell_orders.keys())
                 mid_price = self.trader_data["kelp_range_middle"]
@@ -252,7 +257,7 @@ class Trader:
 
                 # Update price history
                 self.trader_data["price_history"].append(mid_price)
-                if len(self.trader_data["price_history"]) > self.LOOKBACK_PERIOD:
+                while len(self.trader_data["price_history"]) > self.LOOKBACK_PERIOD:
                     self.trader_data["price_history"].pop(0)
 
                 # Calculate momentum
@@ -273,15 +278,19 @@ class Trader:
                 # Generate orders
                 position_change = target_position - current_position
 
-                if position_change > 0:  # We want to buy
+                if position_change < 0:  # We want to buy
                     max_buy_volume = POSITION_LIMIT - current_position
                     buy_quantity = min(min_ask_volume, max_buy_volume)
-                    orders.append(Order(product, min_ask, buy_quantity))
+                    orders.append(Order(product, best_bid, -buy_quantity))
+                    self.trader_data["entry_price"] = best_ask
 
-                elif position_change < 0:  # We want to sell
+                elif position_change > 0:  # We want to sell
                     max_sell_volume = POSITION_LIMIT + current_position
                     sell_quantity = min(max_bid_volume, max_sell_volume)
                     orders.append(Order(product, max_bid, -sell_quantity))
+                    self.trader_data["entry_price"] = best_bid
+
+
 
                 # Profit taking/stop loss
                 if self.trader_data["entry_price"]:

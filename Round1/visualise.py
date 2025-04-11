@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import pandas as pd
+import random
 
 # Aggregate price data
 prices_day_1 = pd.read_csv("round-1-island-data-bottle/prices_round_1_day_-2.csv", sep=';')
@@ -26,8 +27,8 @@ trades_day_3 = pd.DataFrame(trades_day_3)
 trades_day_3.timestamp = trades_day_3.timestamp + 2000000
 trades = pd.concat([trades_day_1, trades_day_2, trades_day_3])
 
-start_ms = 1500000
-end_ms = 1600000
+start_ms = random.randint(0, 2900000)
+end_ms = start_ms + 2000
 
 #Select KELP data
 kelp_data = prices.loc[(prices["product"] == "KELP") & (prices["timestamp"] > start_ms) & (prices["timestamp"] < end_ms)]
@@ -37,7 +38,7 @@ resin_data = prices.loc[(prices["product"] == "RAINFOREST_RESIN") & (prices["tim
 ink_data = prices.loc[(prices["product"] == "SQUID_INK") & (prices["timestamp"] > start_ms) & (prices["timestamp"] < end_ms)]
 
 #Display data as table
-print(resin_data)
+print(ink_data)
 product = "INK"
 data = pd.DataFrame()
 
@@ -51,8 +52,8 @@ elif product == "INK":
 
 #Visualise
 plt.plot((data['timestamp']), data['mid_price'], 'b-', linewidth=0.5)
-#plt.plot((data['timestamp']), data['bid_price_1'], 'g-', linewidth=0.5)
-#plt.plot((data['timestamp']), data['ask_price_1'], 'r-', linewidth=0.5)
+plt.plot((data['timestamp']), data['bid_price_1'], 'g-', linewidth=0.5)
+plt.plot((data['timestamp']), data['ask_price_1'], 'r-', linewidth=0.5)
 
 
 #plt.plot(ink_data['timestamp'], ink_data['mid_price'], 'b-', label='Ink Mid Price', linewidth=0.5)

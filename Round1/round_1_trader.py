@@ -174,7 +174,7 @@ class Trader:
             min_ask_volume = abs(order_depth.sell_orders[min_ask])
 
             # Resin trading strategy
-            if product == "RAINFOREST_RESIN":
+            if product == "RAINFOREST_RESINN":
                 fair_value = 10000
 
                 # Sell if bid price higher than fair value
@@ -211,10 +211,13 @@ class Trader:
 
                 if min_ask > range_high:
                     mid_price = (max_bid + min_ask) / 2
-                    self.trader_data["kelp_range_middle"] = mid_price - 1
+                    self.trader_data["kelp_price_interval_previous"][0] = min_ask
+                    self.trader_data["kelp_range_middle"] = mid_price
                 elif max_bid < range_low:
                     mid_price = (max_bid + min_ask) / 2
-                    self.trader_data["kelp_range_middle"] = mid_price + 1
+                    self.trader_data["kelp_price_interval_previous"][1] = max_bid
+                    self.trader_data["kelp_range_middle"] = mid_price
+
 
                 mid_price = self.trader_data["kelp_range_middle"]
                 if self.trader_data["kelp_trading_active"] and state.timestamp > KELP_RANGE_INTERVAL:

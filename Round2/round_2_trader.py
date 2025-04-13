@@ -303,6 +303,64 @@ class Trader:
                 if orders:
                     self.trader_data["entry_price"] = mid_price
 
+            # Picnic baskets strategy
+            elif product == "PICNIC_BASKET2" or product == "PICNIC_BASKET1":
+                # Check if both baskets exist in the order book
+                basket1_data = state.order_depths.get("PICNIC_BASKET1", None)
+                basket2_data = state.order_depths.get("PICNIC_BASKET2", None)
+
+                if basket1_data and basket2_data:
+                    # Calculate mid-prices
+                    basket1_mid = (max(basket1_data.buy_orders) + min(basket1_data.sell_orders)) / 2
+                    basket2_mid = (max(basket2_data.buy_orders) + min(basket2_data.sell_orders)) / 2
+
+                    # Calculate spread (simple price difference)
+                    spread = basket1_mid - basket2_mid
+                    self.trader_data["picnic_spread_history"].append(spread)
+                    if len(self.trader_data["picnic_spread_history"]) > self.trader_data["spread_window"]:
+                        self.trader_data["picnic_spread_history"].pop(0)
+
+                    # Compute Z-score if enough data
+                    if len(self.trader_data["picnic_spread_history"]) >= self.trader_data["spread_window"]:
+                        spread_mean = np.mean(self.trader_data["picnic_spread_history"])
+                        spread_std = np.std(self.trader_data["picnic_spread_history"])
+                        z_score = (spread - spread_mean) / spread_std if spread_std != 0 else 0
+
+                        # Get current positions
+                        basket1_pos = state.position.get("PICNIC_BASKET1", 0)
+                        basket2_pos = state.position.get("PICNIC_BASKET2", 0)
+
+                        # Trading signals
+                        if z_score > self.trader_data["entry_z"] and basket1_pos == 0:
+                            # Short PICNIC_BASKET1, Long PICNIC_BASKET2 (spread too wide)
+                            result["PICNIC_BASKET1"] = [
+                                Order("PICNIC_BASKET1", min(basket1_data.sell_orders), -self.PICNIC_BASKET1_LIMIT)]
+                            result["PICNIC_BASKET2"] = [
+                                Order("PICNIC_BASKET2", max(basket2_data.buy_orders), self.PICNIC_BASKET2_LIMIT)]
+
+                        elif z_score < -self.trader_data["entry_z"] and basket2_pos == 0:
+                            # Long PICNIC_BASKET1, Short PICNIC_BASKET2 (spread too narrow)
+                            result["PICNIC_BASKET1"] = [
+                                Order("PICNIC_BASKET1", max(basket1_data.buy_orders), self.PICNIC_BASKET1_LIMIT)]
+                            result["PICNIC_BASKET2"] = [
+                                Order("PICNIC_BASKET2", min(basket2_data.sell_orders), -self.PICNIC_BASKET2_LIMIT)]
+
+                        elif abs(z_score) < self.trader_data["exit_z"]:
+                            # Close positions (spread reverted)
+                            if basket1_pos > 0:
+                                result["PICNIC_BASKET1"] = [
+                                    Order("PICNIC_BASKET1", min(basket1_data.sell_orders), -basket1_pos)]
+                            elif basket1_pos < 0:
+                                result["PICNIC_BASKET1"] = [
+                                    Order("PICNIC_BASKET1", max(basket1_data.buy_orders), -basket1_pos)]
+
+                            if basket2_pos > 0:
+                                result["PICNIC_BASKET2"] = [
+                                    Order("PICNIC_BASKET2", min(basket2_data.sell_orders), -basket2_pos)]
+                            elif basket2_pos < 0:
+                                result["PICNIC_BASKET2"] = [
+                                    Order("PICNIC_BASKET2", max(basket2_data.buy_orders), -basket2_pos)]
+
 
 
             # --- 4. Store Orders (If Any) ---

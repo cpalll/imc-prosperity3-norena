@@ -1,6 +1,7 @@
 import json
 from typing import Any, Dict, List
 import jsonpickle
+import numpy as np
 
 from datamodel import Listing, Observation, Order, OrderDepth, ProsperityEncoder, Symbol, Trade, TradingState
 
@@ -130,11 +131,31 @@ class Trader:
             "kelp_range_middle": 0,
             "kelp_trading_active": True,
             "price_history": [],  # Stores last 50 mid-prices
-            "entry_price": None  # Track entry price for exits
+            "entry_price": None,  # Track entry price for exits
+
+            # Pairs trading
+            "pair_symbols": ("PICNIC_BASKET1", "PICNIC_BASKET2"),  # Asset pair
+            "spread_window": 50,  # Lookback window for spread mean/std
+            "entry_z": 1.5,  # Enter trade when Z-score > |1.5|
+            "exit_z": 0.5,  # Exit trade when Z-score < |0.5|
+            "picnic_spread_history": [],  # Tracks historical spreads
         }
+
+        # Set constants and parameters
+        self.POSITION_LIMIT = 50
+        self.CROISSANTS_LIMIT = 250
+        self.JAMS_LIMIT = 350
+
+        self.DJEMBES_LIMIT = 60
+        self.PICNIC_BASKET1_LIMIT = 60
+        self.PICNIC_BASKET2_LIMIT = 100
+        self.KELP_RANGE_INTERVAL = 2000  # ms time intervals for ranges
+        self.KELP_RANGE_PM = 0
+
         self.LOOKBACK_PERIOD = 50  # Momentum calculation window
-        self.POSITION_LIMIT = 50  # Max position size
         self.TREND_THRESHOLD = 0.01
+
+
 
 
     def run(self, state: TradingState) -> tuple[Dict[str, List[Order]], int, str]:
@@ -143,10 +164,8 @@ class Trader:
         :param state: Contains order book, positions, and traderData
         :return: (orders, conversions, traderData)
         """
-        # Set constants and parameters
-        POSITION_LIMIT = 50
-        KELP_RANGE_INTERVAL = 2000  # ms time intervals for ranges
-        KELP_RANGE_PM = 0
+
+
 
         # --- 1. Load Persistent State ---
         if state.traderData:
@@ -179,26 +198,26 @@ class Trader:
 
                 # Sell if bid price higher than fair value
                 if max_bid > fair_value:
-                    max_sell_volume = POSITION_LIMIT + current_position
+                    max_sell_volume = self.POSITION_LIMIT + current_position
                     sell_quantity = min(max_bid_volume, max_sell_volume)
                     orders.append(Order(product, max_bid, -max_sell_volume))
 
                 # Buy if ask price lower than fair value
                 elif min_ask < fair_value:
-                    max_buy_volume = POSITION_LIMIT - current_position
+                    max_buy_volume = self.POSITION_LIMIT - current_position
                     buy_quantity = min(min_ask_volume, max_buy_volume)
                     orders.append(Order(product, min_ask, max_buy_volume))
 
             # Kelp trading strategy
-            elif product == "KELP":
+            elif product == "KELPP":
                 mid_price = self.trader_data["kelp_range_middle"]
                 current_range = self.trader_data["kelp_price_interval_current"]
                 previous_range = self.trader_data["kelp_price_interval_previous"]
                 spread = abs(previous_range[0] - previous_range[1])
-                range_high = mid_price + spread/2 + KELP_RANGE_PM
-                range_low = mid_price - spread/2 - KELP_RANGE_PM
+                range_high = mid_price + spread/2 + self.KELP_RANGE_PM
+                range_low = mid_price - spread/2 - self.KELP_RANGE_PM
 
-                if state.timestamp % KELP_RANGE_INTERVAL == 0:
+                if state.timestamp % self.KELP_RANGE_INTERVAL == 0:
                     # Start new interval
                     self.trader_data["kelp_trading_active"] = True
                     self.trader_data["kelp_price_interval_previous"] = self.trader_data["kelp_price_interval_current"]
@@ -220,16 +239,16 @@ class Trader:
 
 
                 mid_price = self.trader_data["kelp_range_middle"]
-                if self.trader_data["kelp_trading_active"] and state.timestamp > KELP_RANGE_INTERVAL:
+                if self.trader_data["kelp_trading_active"] and state.timestamp > self.KELP_RANGE_INTERVAL:
                     # Sell if bid price higher than fair value
                     if max_bid > mid_price:
-                        max_sell_volume = POSITION_LIMIT + current_position
+                        max_sell_volume = self.POSITION_LIMIT + current_position
                         sell_quantity = min(max_bid_volume, max_sell_volume)
                         orders.append(Order(product, max_bid, -max_sell_volume))
 
                     # Buy if ask price lower than fair value
                     elif min_ask < mid_price:
-                        max_buy_volume = POSITION_LIMIT - current_position
+                        max_buy_volume = self.POSITION_LIMIT - current_position
                         buy_quantity = min(min_ask_volume, -max_buy_volume)
                         orders.append(Order(product, min_ask, max_buy_volume))
 
@@ -246,7 +265,7 @@ class Trader:
                             orders.append(Order(product, min_ask - 2, buy_quantity))
 
             # INK trading strategy
-            elif product == "SQUID_INKk":
+            elif product == "SQUID_INKK":
                 mid_price = (max_bid + min_ask) / 2
 
                 # Update price history
@@ -272,13 +291,13 @@ class Trader:
                 position_change = target_position - current_position
 
                 if position_change > 0:  # We want to buy
-                    max_buy_volume = POSITION_LIMIT - current_position
+                    max_buy_volume = self.POSITION_LIMIT - current_position
                     buy_quantity = min(min_ask_volume, max_buy_volume)
                     orders.append(Order(product, min_ask, position_change))
                     self.trader_data["entry_price"] = min_ask
 
                 elif position_change < 0:  # We want to sell
-                    max_sell_volume = POSITION_LIMIT + current_position
+                    max_sell_volume = self.POSITION_LIMIT + current_position
                     sell_quantity = min(max_bid_volume, max_sell_volume)
                     orders.append(Order(product, max_bid, -position_change))
                     self.trader_data["entry_price"] = max_bid
@@ -305,6 +324,10 @@ class Trader:
 
             # Picnic baskets strategy
             elif product == "PICNIC_BASKET2" or product == "PICNIC_BASKET1":
+                # Initialize orders dictionary for both products
+                result["PICNIC_BASKET1"] = []
+                result["PICNIC_BASKET2"] = []
+
                 # Check if both baskets exist in the order book
                 basket1_data = state.order_depths.get("PICNIC_BASKET1", None)
                 basket2_data = state.order_depths.get("PICNIC_BASKET2", None)
@@ -333,33 +356,33 @@ class Trader:
                         # Trading signals
                         if z_score > self.trader_data["entry_z"] and basket1_pos == 0:
                             # Short PICNIC_BASKET1, Long PICNIC_BASKET2 (spread too wide)
-                            result["PICNIC_BASKET1"] = [
-                                Order("PICNIC_BASKET1", min(basket1_data.sell_orders), -self.PICNIC_BASKET1_LIMIT)]
-                            result["PICNIC_BASKET2"] = [
-                                Order("PICNIC_BASKET2", max(basket2_data.buy_orders), self.PICNIC_BASKET2_LIMIT)]
+                            max_sell_volume = self.PICNIC_BASKET1_LIMIT + basket1_pos
+                            orders.append(Order("PICNIC_BASKET1", min(basket1_data.sell_orders), -max_sell_volume))
+                            max_buy_volume = self.PICNIC_BASKET2_LIMIT - basket2_pos
+                            orders.append(Order("PICNIC_BASKET2", max(basket2_data.buy_orders), max_buy_volume))
 
                         elif z_score < -self.trader_data["entry_z"] and basket2_pos == 0:
                             # Long PICNIC_BASKET1, Short PICNIC_BASKET2 (spread too narrow)
-                            result["PICNIC_BASKET1"] = [
-                                Order("PICNIC_BASKET1", max(basket1_data.buy_orders), self.PICNIC_BASKET1_LIMIT)]
-                            result["PICNIC_BASKET2"] = [
-                                Order("PICNIC_BASKET2", min(basket2_data.sell_orders), -self.PICNIC_BASKET2_LIMIT)]
+                            max_buy_volume = self.PICNIC_BASKET1_LIMIT - basket1_pos
+                            orders.append(Order("PICNIC_BASKET1", max(basket1_data.buy_orders), max_buy_volume))
+                            max_sell_volume = self.PICNIC_BASKET2_LIMIT + basket2_pos
+                            orders.append(Order("PICNIC_BASKET2", min(basket2_data.sell_orders), -max_sell_volume))
 
                         elif abs(z_score) < self.trader_data["exit_z"]:
                             # Close positions (spread reverted)
                             if basket1_pos > 0:
-                                result["PICNIC_BASKET1"] = [
-                                    Order("PICNIC_BASKET1", min(basket1_data.sell_orders), -basket1_pos)]
+                                # Close long position by selling
+                                orders.append(Order("PICNIC_BASKET1", min(basket1_data.sell_orders), -basket1_pos))
                             elif basket1_pos < 0:
-                                result["PICNIC_BASKET1"] = [
-                                    Order("PICNIC_BASKET1", max(basket1_data.buy_orders), -basket1_pos)]
+                                # Close short position by buying back
+                                orders.append(Order("PICNIC_BASKET1", max(basket1_data.buy_orders), -basket1_pos))
 
                             if basket2_pos > 0:
-                                result["PICNIC_BASKET2"] = [
-                                    Order("PICNIC_BASKET2", min(basket2_data.sell_orders), -basket2_pos)]
+                                # Close long position by selling
+                                orders.append(Order("PICNIC_BASKET2", min(basket2_data.sell_orders), -basket2_pos))
                             elif basket2_pos < 0:
-                                result["PICNIC_BASKET2"] = [
-                                    Order("PICNIC_BASKET2", max(basket2_data.buy_orders), -basket2_pos)]
+                                # Close short position by buying back
+                                orders.append(Order("PICNIC_BASKET2", max(basket2_data.buy_orders), -basket2_pos))
 
 
 

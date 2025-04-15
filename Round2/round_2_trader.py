@@ -410,6 +410,6 @@ class Trader:
         self.trader_data["example_state"] += 1  # Track iterations
         trader_data_str = jsonpickle.encode(self.trader_data)
 
-        logger.flush(state, result, conversions, self.trader_data)
+        logger.flush(state, result, conversions, trader_data_str)
 
         return result, conversions, trader_data_str

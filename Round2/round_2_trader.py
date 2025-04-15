@@ -117,7 +117,20 @@ class Logger:
         if len(value) <= max_length:
             return value
 
-        return value[: max_length - 3] + "..."
+            candidate = value[:mid]
+            if len(candidate) < len(value):
+                candidate += "..."
+
+            encoded_candidate = json.dumps(candidate)
+
+            if len(encoded_candidate) <= max_length:
+                out = candidate
+                lo = mid + 1
+            else:
+                hi = mid - 1
+
+        return out
+
 logger = Logger()
 
 

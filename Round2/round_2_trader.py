@@ -131,9 +131,6 @@ class Logger:
                 lo = mid + 1
             else:
                 hi = mid - 1
-
-        return out
-
 logger = Logger()
 
 
@@ -146,6 +143,7 @@ class Trader:
             "kelp_price_interval_current": [-9999999, 9999999],
             "kelp_range_middle": 0,
             "kelp_trading_active": True,
+
             "price_history": [],  # Stores last 50 mid-prices
             "entry_price": None,  # Track entry price for exits
 
@@ -155,23 +153,42 @@ class Trader:
             "entry_z": 1.5,  # Enter trade when Z-score > |1.5|
             "exit_z": 0.5,  # Exit trade when Z-score < |0.5|
             "picnic_spread_history": [],  # Tracks historical spreads
+            "basket1_mid": 0,
+            "basket2_mid": 0,
+
+            # VWAP
+            "djembe_price_volume": [],  # Stores (price, volume) tuples
+            "current_vwap": None,
+            "entry_vwap": None,
+
+            "jams_price_history": [],
         }
 
         # Set constants and parameters
+        # Round 1
         self.POSITION_LIMIT = 50
+
+        # Round 2
         self.CROISSANTS_LIMIT = 250
         self.JAMS_LIMIT = 350
-
         self.DJEMBES_LIMIT = 60
         self.PICNIC_BASKET1_LIMIT = 60
         self.PICNIC_BASKET2_LIMIT = 100
+
         self.KELP_RANGE_INTERVAL = 2000  # ms time intervals for ranges
         self.KELP_RANGE_PM = 0
 
-        self.LOOKBACK_PERIOD = 50  # Momentum calculation window
+        self.LOOKBACK_PERIOD = 300  # Momentum calculation window
         self.TREND_THRESHOLD = 0.01
 
+        self.vwap_window = 50  # Number of timesteps to calculate VWAP
+        self.volume_participation = 0.5  # % of available volume to take
 
+    def calculate_vwap(self, price_volume_data):
+        total_volume = sum(vol for (_, vol) in price_volume_data)
+        if total_volume == 0:
+            return None
+        return sum(price * vol for (price, vol) in price_volume_data) / total_volume
 
 
     def run(self, state: TradingState) -> tuple[Dict[str, List[Order]], int, str]:
@@ -202,8 +219,8 @@ class Trader:
             print("Bids:", order_depth.buy_orders)
             print("Asks:", order_depth.sell_orders)
 
-            max_bid = max(order_depth.buy_orders)
-            max_bid_volume = order_depth.buy_orders[max_bid]
+            max_bid = max(order_depth.buy_orders) if order_depth.buy_orders else 0
+            max_bid_volume = order_depth.buy_orders[max_bid] if order_depth.buy_orders else 0
 
             min_ask = min(order_depth.sell_orders)
             min_ask_volume = abs(order_depth.sell_orders[min_ask])
@@ -283,6 +300,7 @@ class Trader:
             # INK trading strategy
             elif product == "SQUID_INKK":
                 mid_price = (max_bid + min_ask) / 2
+                ma = np.mean(self.trader_data["price_history"][-10:])  # 10-period MA
 
                 # Update price history
                 self.trader_data["price_history"].append(mid_price)
@@ -291,70 +309,61 @@ class Trader:
 
                 # Calculate momentum
                 momentum = 0
-                if len(self.trader_data["price_history"]) == self.LOOKBACK_PERIOD:
-                    old_price = self.trader_data["price_history"][0]
-                    momentum = (mid_price - old_price) / old_price
+                #if len(self.trader_data["price_history"]) == self.LOOKBACK_PERIOD:
+                old_price = self.trader_data["price_history"][0]
+                momentum = (mid_price - old_price) / old_price
 
                 # Determine position direction
                 target_position = 0
 
-                if momentum > self.TREND_THRESHOLD:  # Strong uptrend
+                if momentum > self.TREND_THRESHOLD and mid_price > ma:  # Strong uptrend
                     target_position = self.POSITION_LIMIT
-                elif momentum < -self.TREND_THRESHOLD:  # Strong downtrend
+                elif momentum < -self.TREND_THRESHOLD and mid_price < ma:  # Strong downtrend
                     target_position = -self.POSITION_LIMIT
 
                 # Generate orders
                 position_change = target_position - current_position
 
-                if position_change > 0:  # We want to buy
-                    max_buy_volume = self.POSITION_LIMIT - current_position
-                    buy_quantity = min(min_ask_volume, max_buy_volume)
-                    orders.append(Order(product, min_ask, position_change))
-                    self.trader_data["entry_price"] = min_ask
+                if current_position == 0:
+                    if position_change > 0:  # We want to buy
+                        orders.append(Order(product, min_ask, position_change))
+                        self.trader_data["entry_price"] = min_ask
 
-                elif position_change < 0:  # We want to sell
-                    max_sell_volume = self.POSITION_LIMIT + current_position
-                    sell_quantity = min(max_bid_volume, max_sell_volume)
-                    orders.append(Order(product, max_bid, -position_change))
-                    self.trader_data["entry_price"] = max_bid
+                    elif position_change < 0:  # We want to sell
+                        orders.append(Order(product, max_bid, position_change))
+                        self.trader_data["entry_price"] = max_bid
 
 
 
                 # Profit taking/stop loss
                 if self.trader_data["entry_price"]:
-                    if current_position > 0:  # Long position
-                        if mid_price > self.trader_data["entry_price"] * 1.02:  # % profit take
-                            orders.append(Order(product, max_bid, -current_position))
-                        elif mid_price < self.trader_data["entry_price"] * 0.99:  # % stop loss
-                            orders.append(Order(product, max_bid, -current_position))
+                    returns = (mid_price - self.trader_data["entry_price"]) / self.trader_data["entry_price"]
 
-                    elif current_position < 0:  # Short position
-                        if mid_price < self.trader_data["entry_price"] * 0.98:  # % profit take
-                            orders.append(Order(product, min_ask, -current_position))
-                        elif mid_price > self.trader_data["entry_price"] * 1.01:  # % stop loss
-                            orders.append(Order(product, min_ask, -current_position))
+                    # Long exit
+                    if current_position > 0 and (returns > 0.02 or returns < -0.01):
+                        orders.append(Order(product, max_bid, -current_position))
 
-                # Update entry price if position changed
-                if orders:
-                    self.trader_data["entry_price"] = mid_price
+                    # Short exit
+                    elif current_position < 0 and (returns < -0.02 or returns > 0.01):
+                        orders.append(Order(product, min_ask, -current_position))
+
+
 
             # Picnic baskets strategy
-            elif product == "PICNIC_BASKET2" or product == "PICNIC_BASKET1":
-                # Initialize orders dictionary for both products
-                result["PICNIC_BASKET1"] = []
-                result["PICNIC_BASKET2"] = []
-
+            elif product == "PICNIC_BASKET22" or product == "PICNIC_BASKET11":
                 # Check if both baskets exist in the order book
                 basket1_data = state.order_depths.get("PICNIC_BASKET1", None)
                 basket2_data = state.order_depths.get("PICNIC_BASKET2", None)
 
                 if basket1_data and basket2_data:
                     # Calculate mid-prices
-                    basket1_mid = (max(basket1_data.buy_orders) + min(basket1_data.sell_orders)) / 2
-                    basket2_mid = (max(basket2_data.buy_orders) + min(basket2_data.sell_orders)) / 2
+                    if basket1_data.buy_orders and basket1_data.sell_orders:
+                        self.trader_data["basket1_mid"] = (max(basket1_data.buy_orders) + min(basket1_data.sell_orders)) / 2
+                    if basket2_data.buy_orders and basket2_data.sell_orders:
+                        self.trader_data["basket2_mid"] = (max(basket2_data.buy_orders) + min(basket2_data.sell_orders)) / 2
 
                     # Calculate spread (simple price difference)
-                    spread = basket1_mid - basket2_mid
+                    spread = self.trader_data["basket1_mid"] - self.trader_data["basket2_mid"]
                     self.trader_data["picnic_spread_history"].append(spread)
                     if len(self.trader_data["picnic_spread_history"]) > self.trader_data["spread_window"]:
                         self.trader_data["picnic_spread_history"].pop(0)
@@ -369,36 +378,102 @@ class Trader:
                         basket1_pos = state.position.get("PICNIC_BASKET1", 0)
                         basket2_pos = state.position.get("PICNIC_BASKET2", 0)
 
+
                         # Trading signals
                         if z_score > self.trader_data["entry_z"] and basket1_pos == 0:
                             # Short PICNIC_BASKET1, Long PICNIC_BASKET2 (spread too wide)
                             max_sell_volume = self.PICNIC_BASKET1_LIMIT + basket1_pos
-                            orders.append(Order("PICNIC_BASKET1", min(basket1_data.sell_orders), -max_sell_volume))
+                            result["PICNIC_BASKET1"] = [
+                                Order("PICNIC_BASKET1", min(basket1_data.sell_orders), -self.PICNIC_BASKET1_LIMIT)]
                             max_buy_volume = self.PICNIC_BASKET2_LIMIT - basket2_pos
-                            orders.append(Order("PICNIC_BASKET2", max(basket2_data.buy_orders), max_buy_volume))
+                            result["PICNIC_BASKET2"] = [
+                                Order("PICNIC_BASKET2", max(basket2_data.buy_orders), self.PICNIC_BASKET2_LIMIT)]
 
                         elif z_score < -self.trader_data["entry_z"] and basket2_pos == 0:
                             # Long PICNIC_BASKET1, Short PICNIC_BASKET2 (spread too narrow)
                             max_buy_volume = self.PICNIC_BASKET1_LIMIT - basket1_pos
-                            orders.append(Order("PICNIC_BASKET1", max(basket1_data.buy_orders), max_buy_volume))
+                            result["PICNIC_BASKET1"] = [
+                                Order("PICNIC_BASKET1", max(basket1_data.buy_orders), self.PICNIC_BASKET1_LIMIT)]
                             max_sell_volume = self.PICNIC_BASKET2_LIMIT + basket2_pos
-                            orders.append(Order("PICNIC_BASKET2", min(basket2_data.sell_orders), -max_sell_volume))
+                            result["PICNIC_BASKET2"] = [
+                                Order("PICNIC_BASKET2", min(basket2_data.sell_orders), -self.PICNIC_BASKET2_LIMIT)]
 
                         elif abs(z_score) < self.trader_data["exit_z"]:
                             # Close positions (spread reverted)
                             if basket1_pos > 0:
-                                # Close long position by selling
-                                orders.append(Order("PICNIC_BASKET1", min(basket1_data.sell_orders), -basket1_pos))
+                                result["PICNIC_BASKET1"] = [
+                                    Order("PICNIC_BASKET1", min(basket1_data.sell_orders), -basket1_pos)]
                             elif basket1_pos < 0:
-                                # Close short position by buying back
-                                orders.append(Order("PICNIC_BASKET1", max(basket1_data.buy_orders), -basket1_pos))
+                                result["PICNIC_BASKET1"] = [
+                                    Order("PICNIC_BASKET1", max(basket1_data.buy_orders), -basket1_pos)]
 
                             if basket2_pos > 0:
-                                # Close long position by selling
-                                orders.append(Order("PICNIC_BASKET2", min(basket2_data.sell_orders), -basket2_pos))
+                                result["PICNIC_BASKET2"] = [
+                                    Order("PICNIC_BASKET2", min(basket2_data.sell_orders), -basket2_pos)]
                             elif basket2_pos < 0:
-                                # Close short position by buying back
-                                orders.append(Order("PICNIC_BASKET2", max(basket2_data.buy_orders), -basket2_pos))
+                                result["PICNIC_BASKET2"] = [
+                                    Order("PICNIC_BASKET2", max(basket2_data.buy_orders), -basket2_pos)]
+
+            elif product == "DJEMBESS":
+                # Only process when we have valid market data
+                if max_bid and min_ask:
+                    mid_price = (max_bid + min_ask) / 2
+                    total_volume = max_bid_volume + min_ask_volume
+                    self.trader_data["djembe_price_volume"].append((mid_price, total_volume))
+
+                    # Maintain rolling window
+                    if len(self.trader_data["djembe_price_volume"]) > self.vwap_window:
+                        self.trader_data["djembe_price_volume"].pop(0)
+
+                    # Calculate VWAP if we have enough data
+                    if len(self.trader_data["djembe_price_volume"]) >= 5:  # Minimum 5 periods
+                        self.trader_data["current_vwap"] = self.calculate_vwap(self.trader_data["djembe_price_volume"])
+
+                # Trading logic when we have VWAP and market prices
+                if self.trader_data["current_vwap"] and max_bid and min_ask:
+                    orders = []
+
+                    # Buy signal (price below VWAP with available liquidity)
+                    if min_ask < self.trader_data["current_vwap"] and min_ask_volume > 0:
+                        max_buy_size = min(
+                            self.DJEMBES_LIMIT - current_position,
+                            int(min_ask_volume * self.volume_participation),
+                            min_ask_volume  # Absolute limit
+                        )
+                        if max_buy_size > 0:
+                            orders.append(Order("DJEMBES", min_ask, max_buy_size))
+
+                    # Sell signal (price above VWAP with available liquidity)
+                    elif max_bid > self.trader_data["current_vwap"] and max_bid_volume > 0:
+                        max_sell_size = min(
+                            self.DJEMBES_LIMIT + current_position,
+                            int(max_bid_volume * self.volume_participation),
+                            max_bid_volume  # Absolute limit
+                        )
+                        if max_sell_size > 0:
+                            orders.append(Order("DJEMBES", max_bid, -max_sell_size))
+
+                    # Position management
+                    if current_position != 0:
+                        # Initialize entry VWAP if not set
+                        if not self.trader_data["entry_vwap"]:
+                            self.trader_data["entry_vwap"] = self.trader_data["current_vwap"]
+
+                        # Take profit or stop loss conditions
+                        take_profit = False
+                        stop_loss = False
+
+                        if current_position > 0:  # Long position
+                            take_profit = max_bid > self.trader_data["entry_vwap"] * 1.015
+                            stop_loss = min_ask < self.trader_data["entry_vwap"] * 0.99
+                        else:  # Short position
+                            take_profit = min_ask < self.trader_data["entry_vwap"] * 0.985
+                            stop_loss = max_bid > self.trader_data["entry_vwap"] * 1.01
+
+                        if take_profit or stop_loss:
+                            close_price = max_bid if current_position > 0 else min_ask
+                            orders.append(Order("DJEMBES", close_price, -current_position))
+                            self.trader_data["entry_vwap"] = None
 
 
 

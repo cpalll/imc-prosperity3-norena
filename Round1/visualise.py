@@ -28,7 +28,7 @@ trades_day_3.timestamp = trades_day_3.timestamp + 2000000
 trades = pd.concat([trades_day_1, trades_day_2, trades_day_3])
 
 start_ms = random.randint(0, 2900000)
-end_ms = start_ms + 2000
+end_ms = start_ms + 10000
 
 #Select KELP data
 kelp_data = prices.loc[(prices["product"] == "KELP") & (prices["timestamp"] > start_ms) & (prices["timestamp"] < end_ms)]
